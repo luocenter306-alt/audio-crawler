@@ -7,3 +7,9 @@
 - `index.html` 提供输入、状态、试听和下载。
 - `POST /api/audio` 接收 `{"url":"抖音分享链接"}`。后端运行 `extract_audio()`，返回这次生成的音频文件。
 - 当前支持包含作品与原声信息的抖音 App 视频分享链接。提取结果来自平台提供的独立音轨或对应原声。
+
+## 部署为公开网页
+
+用 Render 账号打开[部署页面](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fluocenter306-alt%2Faudio-crawler)。配置使用 Docker 和免费 Web Service。部署成功后，把 Render 控制台显示的 `.onrender.com` 地址发给别人。
+
+服务空闲后会休眠，首次打开可能需要等约一分钟。服务一次处理一条提取请求。部署完成后，先用网页示例确认云端可以读取抖音并返回音频。

@@ -1,6 +1,8 @@
+import os
 import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import BoundedSemaphore
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -18,6 +20,7 @@ ROOT = Path(__file__).resolve().parent
 SHARE_HOSTS = {"v.douyin.com", "www.iesdouyin.com", "www.douyin.com"}
 MEDIA_DOMAINS = ("douyinstatic.com", "douyinvod.com")
 MAX_AUDIO_BYTES = 32 * 1024 * 1024
+EXTRACTION_SLOT = BoundedSemaphore(1)
 MOBILE_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
     "AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"
@@ -106,8 +109,14 @@ def resolve_card(video_id, music_id):
         nonlocal found
         found = page.evaluate(EXTRACT_CARD, arg=video_id, isolated_context=False)
 
+    browser_path = os.environ.get("AUDIO_CHROMIUM_PATH")
     with StealthySession(
-        real_chrome=True, block_ads=True, disable_resources=True, timeout=14000,
+        real_chrome=not browser_path,
+        executable_path=browser_path,
+        extra_flags=["--disable-dev-shm-usage"] if browser_path else [],
+        block_ads=True,
+        disable_resources=True,
+        timeout=14000,
     ) as browser:
         browser.fetch(
             f"https://www.douyin.com/music/{music_id}",
@@ -163,11 +172,22 @@ def index():
     return FileResponse(ROOT / "index.html", media_type="text/html")
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/api/audio")
 def audio(request: LinkInput):
+    url = request.url.strip()
+    if not allowed_url(url):
+        raise HTTPException(422, "请输入有效的抖音 HTTPS 分享链接。")
     temporary = TemporaryDirectory(prefix="douyin-audio-")
+    if not EXTRACTION_SLOT.acquire(blocking=False):
+        temporary.cleanup()
+        raise HTTPException(429, "正在处理另一条链接，请稍后再试。", headers={"Retry-After": "10"})
     try:
-        file = extract_audio(request.url.strip(), Path(temporary.name))
+        file = extract_audio(url, Path(temporary.name))
     except ExtractionError as error:
         temporary.cleanup()
         raise HTTPException(422, str(error)) from error
@@ -177,6 +197,8 @@ def audio(request: LinkInput):
     except Exception:
         temporary.cleanup()
         raise
+    finally:
+        EXTRACTION_SLOT.release()
     return FileResponse(
         file, filename=file.name,
         media_type="audio/mpeg" if file.suffix == ".mp3" else "audio/mp4",

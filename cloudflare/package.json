@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@cloudflare/puppeteer": "2.0.1",
+    "wrangler": "4.164.0"
+  }
+}
